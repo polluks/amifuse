@@ -94,6 +94,23 @@ def _clear_all_block_state():
     _set_block_state(DosLibrary, '_waitpkt_blocked', False)
 
 
+def _unlink_msg_from_m68k_list(mem, msg_addr):
+    """Remove a message node from its Amiga Exec doubly-linked list in m68k memory.
+
+    This mirrors the REMOVE() macro: pred->ln_Succ = succ; succ->ln_Pred = pred.
+    Without this, handlers that read mp_MsgList directly (bypassing our Python
+    PortManager) see stale entries and try to process already-handled packets.
+    """
+    try:
+        ln_succ = mem.r32(msg_addr + 0)  # Node.ln_Succ
+        ln_pred = mem.r32(msg_addr + 4)  # Node.ln_Pred
+        if ln_succ != 0 and ln_pred != 0:
+            mem.w32(ln_pred + 0, ln_succ)  # pred->ln_Succ = succ
+            mem.w32(ln_succ + 4, ln_pred)  # succ->ln_Pred = pred
+    except Exception:
+        pass
+
+
 # Dos packet opcodes we care about
 ACTION_STARTUP = 0
 ACTION_DISK_INFO = 25
@@ -369,6 +386,17 @@ class HandlerLauncher:
         # Also link the message into the port's mp_MsgList in memory
         # This is necessary because some handlers (like FFS) read mp_MsgList directly
         self._link_msg_to_port(dest_port_addr, sp_addr)
+        # Signal the target task like real AmigaOS PutMsg() does.
+        # Without this, Wait() never sees the DOS port signal because
+        # _fallback_signals is not set - only the Python port queue has the
+        # message.  Handlers that call Wait(mask) would block indefinitely.
+        try:
+            sigbit = self.mem.r8(dest_port_addr + self._mp_sigbit_offset)
+            if 0 <= sigbit < 32:
+                from amitools.vamos.lib.lexec.signalfunc import SignalFunc
+                SignalFunc._fallback_signals |= 1 << sigbit
+        except Exception:
+            pass
         return sp_addr + MessageStruct.get_size(), sp_addr
 
     def _link_msg_to_port(self, port_addr: int, msg_addr: int):
@@ -524,7 +552,15 @@ class HandlerLauncher:
             # WaitPort()/WaitPkt() resume - set D0 appropriately
             waitport_port = _get_block_state(ExecLibrary, '_waitport_blocked_port')
             if waitport_port is not None:
-                msg_addr = self.exec_impl.port_mgr.peek_msg(waitport_port)
+                # CRITICAL: use get_msg (not peek_msg) to dequeue the message.
+                # peek_msg left the message in the Python queue, so the handler's
+                # next WaitPkt/GetMsg call would return the same packet again,
+                # causing double packet processing.
+                msg_addr = self.exec_impl.port_mgr.get_msg(waitport_port)
+                if msg_addr:
+                    # Also unlink from m68k memory list to prevent the handler's
+                    # direct mp_MsgList read from seeing a stale entry.
+                    _unlink_msg_from_m68k_list(self.mem, msg_addr)
                 if _get_block_state(DosLibrary, '_waitpkt_blocked', False) and msg_addr:
                     # WaitPkt() resume - extract packet from message
                     msg = AccessStruct(self.mem, MessageStruct, msg_addr)
@@ -650,6 +686,9 @@ class HandlerLauncher:
                     # Wait() blocked - check for ANY pending signals (messages OR IO completion)
                     pending = self._compute_pending_signals(wait_mask)
                     has_pending = pending != 0
+                    if debug:
+                        all_pending = self._compute_pending_signals(0xFFFFFFFF)
+                        print(f"[run_burst] Wait block: ret=0x{ret_addr:x} mask=0x{wait_mask:x} pending_masked=0x{pending:x} pending_all=0x{all_pending:x} has_pending={has_pending}")
                 else:
                     # WaitPort blocked - check for message on the port
                     has_pending = self.exec_impl.port_mgr.has_msg(state.port_addr)
@@ -669,13 +708,18 @@ class HandlerLauncher:
                         else:
                             pending = self._compute_pending_signals(wait_mask)
                         cpu.w_reg(REG_D0, pending)
+                        if debug:
+                            print(f"[run_burst] Wait resume: D0=0x{pending:x}")
                         # Clear returned signals from tc_SigRecvd (like Wait() would)
                         self._clear_signals_from_task(pending)
                     elif waitport_sp is not None:
                         # WaitPort()/WaitPkt() resume - set D0 appropriately
                         waitport_port = _get_block_state(ExecLibrary, '_waitport_blocked_port')
                         if waitport_port is not None:
-                            msg_addr = self.exec_impl.port_mgr.peek_msg(waitport_port)
+                            # CRITICAL: use get_msg (not peek_msg) to dequeue.
+                            msg_addr = self.exec_impl.port_mgr.get_msg(waitport_port)
+                            if msg_addr:
+                                _unlink_msg_from_m68k_list(self.mem, msg_addr)
                             if _get_block_state(DosLibrary, '_waitpkt_blocked', False) and msg_addr:
                                 # WaitPkt() resume - extract packet from message
                                 msg = AccessStruct(self.mem, MessageStruct, msg_addr)
@@ -743,7 +787,10 @@ class HandlerLauncher:
                         # WaitPort()/WaitPkt() resume - set D0 appropriately
                         waitport_port = _get_block_state(ExecLibrary, '_waitport_blocked_port')
                         if waitport_port is not None:
-                            msg_addr = self.exec_impl.port_mgr.peek_msg(waitport_port)
+                            # CRITICAL: use get_msg (not peek_msg) to dequeue.
+                            msg_addr = self.exec_impl.port_mgr.get_msg(waitport_port)
+                            if msg_addr:
+                                _unlink_msg_from_m68k_list(self.mem, msg_addr)
                             if _get_block_state(DosLibrary, '_waitpkt_blocked', False) and msg_addr:
                                 # WaitPkt() resume - extract packet from message
                                 msg = AccessStruct(self.mem, MessageStruct, msg_addr)
