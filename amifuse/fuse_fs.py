@@ -566,6 +566,14 @@ class HandlerBridge:
             if self.state.crashed:
                 break
 
+            # If the handler made no progress (0 cycles), it blocked
+            # immediately and these signals aren't useful.  Stop flushing.
+            cycles_ran = getattr(rs, 'cycles', 0) if rs else 0
+            if cycles_ran == 0 and rnd > 0:
+                if self._debug:
+                    print(f"[amifuse] _flush round {rnd}: no progress, stopping")
+                break
+
             # Capture updated wait_mask if handler changed it
             new_mask = _get_block_state(ExecLibrary, '_wait_blocked_mask')
             if new_mask and new_mask != 0:
