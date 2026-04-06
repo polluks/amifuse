@@ -158,6 +158,32 @@ class TestMountFuseOptions:
         assert kwargs is not None, "FUSE was not called"
         assert "subtype" not in kwargs
 
+    def test_darwin_mount_keeps_xattrs_enabled(self, monkeypatch, mock_mount_fuse_deps):
+        """On macOS, mount_fuse() must not disable xattrs used by host copy tools."""
+        monkeypatch.setattr("sys.platform", "darwin")
+        import amifuse.platform as plat_mod
+        from amifuse.icon_darwin import get_darwin_mount_options
+        from amifuse.fuse_fs import mount_fuse
+
+        monkeypatch.setattr(
+            plat_mod,
+            "get_mount_options",
+            lambda **kwargs: get_darwin_mount_options(**kwargs),
+        )
+
+        mount_fuse(
+            image=Path("/tmp/test.hdf"),
+            driver=None,
+            mountpoint=None,
+            block_size=None,
+        )
+
+        kwargs = mock_mount_fuse_deps["fuse_kwargs"]
+        assert kwargs is not None, "FUSE was not called"
+        assert kwargs["volname"] == "TestVol"
+        assert kwargs["noappledouble"] is True
+        assert "noapplexattr" not in kwargs
+
     def test_mount_defaults_to_daemon_on_linux(self, monkeypatch, mock_mount_fuse_deps):
         """Linux mounts default to background mode."""
         monkeypatch.setattr("sys.platform", "linux")
