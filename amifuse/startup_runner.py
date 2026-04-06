@@ -725,15 +725,25 @@ class HandlerLauncher:
             state.last_error_pc = state.pc
             return state.run_state
 
-        # Always restore A6 to ExecBase before entering handler code.
-        # We can re-enter the handler after WaitPort/exit traps, and A6 may be 0.
+        # Restore the saved CPU frame first.
+        #
+        # Do not blindly reset A6 on every burst: the handler may be resumed
+        # in the middle of compiled C code, and the compiler is free to keep
+        # live state in A6. Clobbering it on ordinary cycle-limit resumes
+        # corrupts locals such as handler-global pointers. Seed ExecBase only
+        # when entering from scratch, or when a synthetic Wait/WaitPort resume
+        # left A6 as 0.
         if state.regs is not None:
             for i in range(16):
                 cpu.w_reg(i, state.regs[i])
-        set_regs = {REG_A6: self.exec_base_addr}
-        cpu.w_reg(REG_A6, self.exec_base_addr)
-        self._set_saved_reg(state, REG_A6, self.exec_base_addr)
         first_run = not state.started
+        seed_execbase = first_run or state.regs is None
+        if resumed and state.regs is not None and state.regs[REG_A6] == 0:
+            seed_execbase = True
+        set_regs = {REG_A6: self.exec_base_addr} if seed_execbase else None
+        if seed_execbase:
+            cpu.w_reg(REG_A6, self.exec_base_addr)
+            self._set_saved_reg(state, REG_A6, self.exec_base_addr)
         if not state.started:
             state.started = True
         # After the first execution, pre-set CPU SP to match state.sp so
