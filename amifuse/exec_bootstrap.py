@@ -4,7 +4,6 @@ minimal task context and MsgPort for the filesystem handler. This is hacky but
 avoids modifying amitools internals.
 """
 
-from amitools.vamos.astructs.access import AccessStruct  # type: ignore
 from amitools.vamos.libstructs.exec_ import TaskStruct, NodeType, MsgPortStruct, ListStruct  # type: ignore
 from amitools.vamos.schedule.stack import Stack  # type: ignore
 from amitools.vamos.schedule.task import Task  # type: ignore
@@ -16,12 +15,12 @@ def create_task(vh, stack_size=8192, name="handler_task"):
     alloc = vh.alloc
     mem = alloc.get_mem()
     tsk_mem = alloc.alloc_memory(TaskStruct.get_size(), label=name)
-    tsk = AccessStruct(mem, TaskStruct, tsk_mem.addr)
-    tsk.w_s("tc_Node.ln_Type", NodeType.NT_TASK)
+    tsk = TaskStruct(mem, tsk_mem.addr)
+    tsk.node.type.val = NodeType.NT_TASK
     stack = Stack.alloc(alloc, stack_size, name=name + "_stack")
-    tsk.w_s("tc_SPUpper", stack.get_upper())
-    tsk.w_s("tc_SPLower", stack.get_lower())
-    tsk.w_s("tc_SPReg", stack.get_initial_sp())
+    tsk.sp_upper.aptr = stack.get_upper()
+    tsk.sp_lower.aptr = stack.get_lower()
+    tsk.sp_reg.aptr = stack.get_initial_sp()
     return tsk_mem.addr, stack
 
 
@@ -38,37 +37,37 @@ def create_msgport(vh, task_bptr):
     alloc = vh.alloc
     mem = alloc.get_mem()
     mp_mem = alloc.alloc_memory(MsgPortStruct.get_size(), label="MsgPort")
-    mp = AccessStruct(mem, MsgPortStruct, mp_mem.addr)
-    mp.w_s("mp_Node.ln_Type", NodeType.NT_MSGPORT)
-    mp.w_s("mp_Flags", 0)
-    mp.w_s("mp_SigBit", 0)
-    mp.w_s("mp_SigTask", task_bptr << 2)
+    mp = MsgPortStruct(mem, mp_mem.addr)
+    mp.node.type.val = NodeType.NT_MSGPORT
+    mp.flags.val = 0
+    mp.sig_bit.val = 0
+    mp.sig_task.aptr = task_bptr << 2
     # init list
-    lst = AccessStruct(mem, ListStruct, mp_mem.addr + 20)
-    lst.w_s("lh_Head", 0)
-    lst.w_s("lh_Tail", 0)
-    lst.w_s("lh_TailPred", 0)
-    lst.w_s("lh_Type", NodeType.NT_MESSAGE)
+    lst = ListStruct(mem, mp_mem.addr + 20)
+    lst.head.aptr = 0
+    lst.tail.aptr = 0
+    lst.tail_pred.aptr = 0
+    lst.type.val = NodeType.NT_MESSAGE
     return mp_mem.addr
 
 
 def build_packet(mem, alloc, msg_port_bptr, pkt_type, args):
     pkt_mem = alloc.alloc_memory(DosPacketStruct.get_size(), label="DosPacket")
     msg_mem = alloc.alloc_memory(MessageStruct.get_size(), label="PacketMsg")
-    pkt = AccessStruct(mem, DosPacketStruct, pkt_mem.addr)
-    msg = AccessStruct(mem, MessageStruct, msg_mem.addr)
-    pkt.w_s("dp_Link", msg_mem.addr)
-    pkt.w_s("dp_Port", msg_port_bptr << 2)
-    pkt.w_s("dp_Type", pkt_type)
+    pkt = DosPacketStruct(mem, pkt_mem.addr)
+    msg = MessageStruct(mem, msg_mem.addr)
+    pkt.link.aptr = msg_mem.addr
+    pkt.port.aptr = msg_port_bptr << 2
+    pkt.type.val = pkt_type
     # fill args
     for i, val in enumerate(args[:7], start=1):
-        pkt.w_s(f"dp_Arg{i}", val)
+        pkt.sfields.get_field_by_name(f"dp_Arg{i}").val = val
     # message
-    msg.w_s("mn_Node.ln_Type", NodeType.NT_MESSAGE)
-    msg.w_s("mn_ReplyPort", msg_port_bptr << 2)
-    msg.w_s("mn_Length", MessageStruct.get_size())
+    msg.node.type.val = NodeType.NT_MESSAGE
+    msg.reply_port.aptr = msg_port_bptr << 2
+    msg.length.val = MessageStruct.get_size()
     # link msg name to packet
-    msg.w_s("mn_Node.ln_Name", pkt_mem.addr)
+    msg.node.name.aptr = pkt_mem.addr
     return pkt_mem.addr, msg_mem.addr
 
 

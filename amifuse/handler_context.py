@@ -8,10 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from amitools.vamos.astructs.access import AccessStruct  # type: ignore
 from amitools.vamos.libstructs.dos import DosPacketStruct, MessageStruct  # type: ignore
 from amitools.vamos.libstructs.exec_ import MsgPortStruct  # type: ignore
-from amitools.vamos.libstructs.dos import FileSysStartupMsgStruct  # type: ignore
+from .amiga_structs import FileSysStartupMsgStruct
 
 from .vamos_runner import VamosHandlerRuntime
 
@@ -40,10 +39,10 @@ class HandlerContext:
             raise RuntimeError("Vamos runtime not initialized")
         pkt_mem = self.vh.alloc.alloc_memory(DosPacketStruct.get_size(), label="pkt")
         msg_mem = self.vh.alloc.alloc_memory(MessageStruct.get_size(), label="msg")
-        pkt = AccessStruct(self.mem, DosPacketStruct, pkt_mem.addr)
-        msg = AccessStruct(self.mem, MessageStruct, msg_mem.addr)
+        pkt = DosPacketStruct(self.mem, pkt_mem.addr)
+        msg = MessageStruct(self.mem, msg_mem.addr)
         # link message to packet (mn_Node.ln_Name is commonly used to carry pkt ptr)
-        msg.w_s("mn_Node.ln_Name", pkt_mem.addr)
+        msg.node.name.aptr = pkt_mem.addr
         return pkt_mem.addr, msg_mem.addr
 
     def alloc_reply_port(self):
@@ -52,8 +51,6 @@ class HandlerContext:
         port_mem = self.vh.alloc.alloc_memory(
             MsgPortStruct.get_size(), label="reply_port"
         )
-        # The AccessStruct wrapper doesn't expose .addr, so return the allocated address.
-        AccessStruct(self.mem, MsgPortStruct, port_mem.addr)  # materialize for now
         return port_mem.addr
 
     def alloc_fssm(self, packet_bptr: int) -> int:
@@ -63,6 +60,6 @@ class HandlerContext:
         fssm_mem = self.vh.alloc.alloc_memory(
             FileSysStartupMsgStruct.get_size(), label="fssm"
         )
-        fssm = AccessStruct(self.mem, FileSysStartupMsgStruct, fssm_mem.addr)
-        fssm.w_s("fssm_StartupMsg.sm_Message.mn_Node.ln_Name", packet_bptr)
+        fssm = FileSysStartupMsgStruct(self.mem, fssm_mem.addr)
+        fssm.sfields.get_field_by_name("fssm_Unit").val = packet_bptr
         return fssm_mem.addr

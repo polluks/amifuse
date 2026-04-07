@@ -15,9 +15,9 @@ class TestAllocMsgport:
         """Verify mp_MsgList is initialized as a proper empty Exec list."""
         from amifuse.bootstrap import BootstrapAllocator
         source = inspect.getsource(BootstrapAllocator.alloc_msgport)
-        assert 'lh_Head", lh_tail_addr)' in source
-        assert 'lh_TailPred", lh_head_addr)' in source
-        assert 'lh_Head", 0)' not in source
+        assert "lst.head.aptr = lh_tail_addr" in source
+        assert "lst.tail_pred.aptr = lh_head_addr" in source
+        assert "lst.head.aptr = 0" not in source
 
     def test_alloc_msgport_list_init_matches_init_msgport(self):
         """Verify alloc_msgport list init matches _init_msgport pattern."""
@@ -25,7 +25,7 @@ class TestAllocMsgport:
         from amifuse.bootstrap import BootstrapAllocator
         bootstrap_src = inspect.getsource(BootstrapAllocator.alloc_msgport)
         launcher_src = inspect.getsource(HandlerLauncher._init_msgport)
-        assert 'lh_Tail", 0)' in bootstrap_src
-        assert 'lh_Tail", 0)' in launcher_src
-        assert 'lh_Head", 0)' not in bootstrap_src
-        assert 'lh_Head", 0)' not in launcher_src
+        assert "lst.tail.aptr = 0" in bootstrap_src
+        assert "lst.tail.aptr = 0" in launcher_src
+        assert "lst.head.aptr = 0" not in bootstrap_src
+        assert "lst.head.aptr = 0" not in launcher_src

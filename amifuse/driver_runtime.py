@@ -379,7 +379,6 @@ def main(argv=None):
             )
             if args.run_startup:
                 from .amiga_structs import FileSysStartupMsgStruct  # type: ignore
-                from amitools.vamos.astructs.access import AccessStruct  # type: ignore
                 from amitools.vamos.libstructs.dos import DosPacketStruct, InfoDataStruct, FileInfoBlockStruct  # type: ignore
                 from amitools.vamos.libstructs.dos import FileHandleStruct  # type: ignore
                 from amitools.vamos.machine.regs import (  # type: ignore
@@ -393,14 +392,14 @@ def main(argv=None):
                 )
 
                 mem = vh.alloc.get_mem()
-                fssm = AccessStruct(mem, FileSysStartupMsgStruct, boot["fssm_addr"])
-                dev_bptr = fssm.r_s("fssm_Device")
-                env_bptr = fssm.r_s("fssm_Environ")
+                fssm = FileSysStartupMsgStruct(mem, boot["fssm_addr"])
+                dev_bptr = fssm.sfields.get_field_by_name("fssm_Device").val
+                env_bptr = fssm.sfields.get_field_by_name("fssm_Environ").val
                 dev_addr = dev_bptr << 2
                 env_addr = env_bptr << 2
                 dev_bytes = mem.r_block(dev_addr, 16)
                 print(
-                    f"FSSM: unit={fssm.r_s('fssm_Unit')} dev_bptr=0x{dev_bptr:x} "
+                    f"FSSM: unit={fssm.sfields.get_field_by_name('fssm_Unit').val} dev_bptr=0x{dev_bptr:x} "
                     f"env_bptr=0x{env_bptr:x} dev_bytes={dev_bytes.hex()} env_addr=0x{env_addr:x}"
                 )
                 try:
@@ -409,11 +408,11 @@ def main(argv=None):
                     print("Env (next 10 longs):", [hex(x) for x in env_words[10:20]])
                     from .amiga_structs import DosEnvecStruct  # type: ignore
 
-                    env_struct = AccessStruct(mem, DosEnvecStruct, env_addr)
+                    env_struct = DosEnvecStruct(mem, env_addr)
                     print(
                         "Env fields:",
                         {
-                            k: env_struct.r_s(k)
+                            k: env_struct.sfields.get_field_by_name(k).val
                             for k in [
                                 "de_TableSize",
                                 "de_SizeBlock",
@@ -449,13 +448,13 @@ def main(argv=None):
                 print(f"Stub bytes: {mem.r_block(state.pc, 16).hex()}")
                 # dump startup message/packet prior to run
                 from amitools.vamos.libstructs.dos import MessageStruct  # type: ignore
-                msg = AccessStruct(mem, MessageStruct, state.msg_addr)
-                pkt = AccessStruct(mem, DosPacketStruct, state.stdpkt_addr)
+                msg = MessageStruct(mem, state.msg_addr)
+                pkt = DosPacketStruct(mem, state.stdpkt_addr)
                 print(
-                    f"Msg before run: ln_Name=0x{msg.r_s('mn_Node.ln_Name'):x} reply=0x{msg.r_s('mn_ReplyPort'):x} len={msg.r_s('mn_Length')}"
+                    f"Msg before run: ln_Name=0x{msg.node.name.aptr:x} reply=0x{msg.reply_port.aptr:x} len={msg.length.val}"
                 )
                 print(
-                    f"Pkt before run: type={pkt.r_s('dp_Type')} arg1=0x{pkt.r_s('dp_Arg1'):x} arg2=0x{pkt.r_s('dp_Arg2'):x} arg3=0x{pkt.r_s('dp_Arg3'):x} port=0x{pkt.r_s('dp_Port'):x} link=0x{pkt.r_s('dp_Link'):x}"
+                    f"Pkt before run: type={pkt.type.val} arg1=0x{pkt.arg1.val:x} arg2=0x{pkt.arg2.val:x} arg3=0x{pkt.arg3.val:x} port=0x{pkt.port.aptr:x} link=0x{pkt.link.aptr:x}"
                 )
                 # run startup once
                 startup_state = launcher.run_burst(state, max_cycles=5000000)
@@ -468,10 +467,10 @@ def main(argv=None):
                     f"Handler PC after startup burst: 0x{state.pc:x} SP=0x{state.sp:x} cycles={getattr(state.run_state, 'cycles', None)}"
                 )
                 # peek startup packet fields
-                spkt = AccessStruct(mem, DosPacketStruct, state.stdpkt_addr)
+                spkt = DosPacketStruct(mem, state.stdpkt_addr)
                 print(
-                    f"Startup packet: type={spkt.r_s('dp_Type')} arg1=0x{spkt.r_s('dp_Arg1'):x} "
-                    f"arg2=0x{spkt.r_s('dp_Arg2'):x} arg3=0x{spkt.r_s('dp_Arg3'):x}"
+                    f"Startup packet: type={spkt.type.val} arg1=0x{spkt.arg1.val:x} "
+                    f"arg2=0x{spkt.arg2.val:x} arg3=0x{spkt.arg3.val:x}"
                 )
                 pending = vh.slm.exec_impl.port_mgr.has_msg(state.reply_port_addr)
                 replies = launcher.poll_replies(state.reply_port_addr)
@@ -481,11 +480,11 @@ def main(argv=None):
                 print(
                     f"Port queue after run: has_msg={vh.slm.exec_impl.port_mgr.has_msg(state.reply_port_addr)}"
                 )
-                spkt_after = AccessStruct(mem, DosPacketStruct, state.stdpkt_addr)
+                spkt_after = DosPacketStruct(mem, state.stdpkt_addr)
                 print(
-                    f"Packet after run: type={spkt_after.r_s('dp_Type')} arg1=0x{spkt_after.r_s('dp_Arg1'):x} "
-                    f"arg2=0x{spkt_after.r_s('dp_Arg2'):x} arg3=0x{spkt_after.r_s('dp_Arg3'):x} "
-                    f"res1={spkt_after.r_s('dp_Res1')} res2={spkt_after.r_s('dp_Res2')}"
+                    f"Packet after run: type={spkt_after.type.val} arg1=0x{spkt_after.arg1.val:x} "
+                    f"arg2=0x{spkt_after.arg2.val:x} arg3=0x{spkt_after.arg3.val:x} "
+                    f"res1={spkt_after.res1.val} res2={spkt_after.res2.val}"
                 )
                 for idx, (_, pkt_addr, res1, res2) in enumerate(replies):
                     print(f"  reply[{idx}] packet=0x{pkt_addr:x} res1={res1} res2={res2}")
@@ -498,9 +497,9 @@ def main(argv=None):
                         print(f"RunState done={state.run_state.done} pc=0x{state.run_state.pc:x} error={state.run_state.error}")
                 # If startup returns success, issue DI/READ post-startup; optionally force success to probe IO
                 force_startup = False
-                if force_startup or spkt_after.r_s("dp_Res1") != 0:
-                    if spkt_after.r_s("dp_Res1") == 0 and force_startup:
-                        spkt_after.w_s("dp_Res1", -1)
+                if force_startup or spkt_after.res1.val != 0:
+                    if spkt_after.res1.val == 0 and force_startup:
+                        spkt_after.res1.val = -1
                         print("Forcing startup dp_Res1 to -1 to probe IO path")
                     print(
                         f"Sending DI (arg1=0x{info_buf.addr:x}) and READ (buf=0x{read_buf.addr:x}, off=0 len=512)"
@@ -577,8 +576,8 @@ def main(argv=None):
                         fi_replies = launcher.poll_replies(state.reply_port_addr)
                         print(f"FindInput replies: {fi_replies}")
                         if fi_replies and fi_replies[-1][2] != 0:
-                            fh = AccessStruct(mem, FileHandleStruct, fh_addr)
-                            fileentry_ptr = fh.r_s("fh_Args")
+                            fh = FileHandleStruct(mem, fh_addr)
+                            fileentry_ptr = fh.args.val
                             print(f"FileHandle args ptr=0x{fileentry_ptr:x}")
                             launcher.send_read_handle(state, fh_addr, read_buf.addr, 512)
                             rh_state = launcher.run_burst(state, max_cycles=2000000)
@@ -589,8 +588,8 @@ def main(argv=None):
                             print("ReadBuf after FH READ:", mem.r_block(read_buf.addr, 32).hex())
                 print("ReadBuf after READ:", mem.r_block(read_buf.addr, 32).hex())
                 # Inspect fssm/device string after the run
-                fssm_after = AccessStruct(vh.alloc.get_mem(), FileSysStartupMsgStruct, boot["fssm_addr"])
-                dev_bptr_after = fssm_after.r_s("fssm_Device")
+                fssm_after = FileSysStartupMsgStruct(vh.alloc.get_mem(), boot["fssm_addr"])
+                dev_bptr_after = fssm_after.sfields.get_field_by_name("fssm_Device").val
                 dev_after = vh.alloc.get_mem().r_block(dev_bptr_after << 2, 16)
                 print(
                     f"FSSM after run: dev_bptr=0x{dev_bptr_after:x} dev_bytes={dev_after.hex()}"
