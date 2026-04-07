@@ -67,8 +67,6 @@ def fuse_mock(monkeypatch):
 
     _stub_module("amitools", vamos=types.SimpleNamespace())
     _stub_module("amitools.vamos")
-    _stub_module("amitools.vamos.astructs")
-    _stub_module("amitools.vamos.astructs.access", AccessStruct=dummy_cls)
     _stub_module("amitools.vamos.libstructs")
     _stub_module(
         "amitools.vamos.libstructs.dos",
